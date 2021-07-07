@@ -1,0 +1,292 @@
+//cimiterio de código
+/*
+switch((jogador->pidJogo = fork())){
+case -1: //ERRO!
+		myabort("Falha fork() thread_trataCliente!",EXIT_FAILURE);
+		break;
+case 0: //Processo filho!
+		if(close(jogoArbitro_fd[0]) == -1) myabort("FILHO: Erro ao fechar extremidade de leitura jA0!",EXIT_FAILURE);
+		if(close(jogador->arbitroJogo_fd[1]) == -1) myabort("FILHO: Erro ao fechar extremidade de escrita aJ1!",EXIT_FAILURE);
+
+
+		if(dup2(jogador->arbitroJogo_fd[0],STDIN_FILENO) == -1) myabort("FILHO: Erro na duplicação do pipe aJ0 (read  end)",EXIT_FAILURE);		
+		if(dup2(jogoArbitro_fd[1],STDOUT_FILENO) == -1) myabort("FILHO: Erro na duplicação do pipe jA1 (write end)",EXIT_FAILURE);
+
+		strcat(path,server->GAMEDIR);
+		strcat(path,"/"); 
+		strcat(path,jogador->jogoAtribuido->nomeJogo);
+
+		execl(path,jogador->jogoAtribuido->nomeJogo,NULL);
+
+		myabort("execl correu mal!",EXIT_FAILURE);
+		break;
+default://Processo pai!	
+		if(close(jogador->arbitroJogo_fd[0]) == -1) myabort("Erro ao fechar extremidade de leitura aJ0!",EXIT_FAILURE);
+		if(close(jogoArbitro_fd[1]) == -1) myabort("Erro ao fechar extremidade de escrita jA1!",EXIT_FAILURE);
+
+		char msgJogo[MSG_BUFFER];
+		while(jogador->estado != 3){
+			printf("Estou a tentar ler para o %s\n",jogador->nome);
+			read(jogoArbitro_fd[0], msgJogo, sizeof(msgJogo));
+			printf("Recebi isto \n'%s'\n na thread do %s \n",msgJogo,jogador->nome);
+			strcpy(resposta.mensagem,msgJogo);
+			resposta.mensagem[strlen(resposta.mensagem)] = '\n';
+			write(jogador->clientpipe_fd, &resposta, sizeof(resposta));
+			
+
+		}
+		puts("acabou as leitura!");
+		break;
+}*/
+
+/*void iniciaContagem(arbitro* server){
+	pJogador aux;
+	while(listaJogadores != NULL){
+		aux = listaJogadores;
+		listaJogadores = listaJogadores->prox;
+		#ifdef DEBUG_PREPARACAO
+		fprintf(stderr, "#[PREPARAÇÃO] Vou avisar o jogador <%s> que iniciei o tempo de espera\n", aux->nome);
+		#endif
+	}
+}*/
+
+/*void sinalRelogio(int sinal){
+	#ifdef DEBUG_SINAIS
+	puts("\n#[SINAL] Contador(SIGALRM) acabooou! Vou enviar o SIGUSR1 ao jogo!");
+	printf("#[SINAL] pidJogo: %d\n",jogoGlobal);
+	#endif  
+
+	union sigval sig_value;
+
+	sig_value.sival_int = 0;
+	if(sigqueue(jogoGlobal,10,sig_value) == -1){
+    	perror("sigqueue() error");
+    	exit(EXIT_FAILURE);}
+}*/
+
+void * thread_relogio(void * ptr){
+	union sigval sig_value;
+	sig_value.sival_int = 0;
+	arbitro * omg = (arbitro *) ptr;
+	sleep(omg->DURACAO);
+	if(sigqueue(omg->pidTeste,10,sig_value) == -1){
+    	perror("sigqueue() error");
+    	exit(EXIT_FAILURE);
+	}
+}
+
+/*void * thread_trataCliente(void * servidor){
+	arbitro * server = (arbitro *) servidor; 	//ponteiro para a estrutura do árbitro
+	pJogador jogador = server->listaJogadores;	//ponteiro para o jogador que vai ser tratado pela thread
+	RespostaArbitro resposta; 					//estrutura para responder ao jogador
+	char path[PATH_MAX];						//path para o jogo, alterar para a estrutura do jogo...
+	int status;									//variavel que recebe o exitstatus do jogo
+	int jogoArbitro_fd[2]; 						//pipe anônimo que trata de receber o output do jogo
+	int nr = 0;
+
+	//abre o pipe que recebe output do jogo / encerra arbitro caso falhe 
+	//ALTERAR ESTRATÉGIA: Avisar cliente de erro no jogo e encerrar comunicações.
+	if(pipe(jogoArbitro_fd)<0)  myabort("FILHO: Erro ao criar pipe anonimo jA",EXIT_FAILURE);
+	
+	resposta.erro = 0; //erro reportado a jogador fica a zero just in case...
+	//Da as boas vindas ao jogador
+	sprintf(resposta.mensagem, "Bem-vindo ao campeonato %s!\nFoi-lhe atribuido o jogo %s\n", jogador->nome,jogador->jogoAtribuido->nomeJogo);
+	sprintf(resposta.mensagem, "%sO campeonato terá uma duração de %d segundos!\n",resposta.mensagem,server->DURACAO);
+	sprintf(resposta.mensagem, "%sAguarde! Será avisado alguns segundos antes do campeonato ter início!\n",resposta.mensagem);
+	write(jogador->clientpipe_fd, &resposta, sizeof(resposta)); //pode bloquear (probabilidade baixa)
+	
+	//Espera pelo inicio do campeonato
+	pthread_mutex_lock (&mutex);
+	pthread_cond_wait(&condicao, &mutex);
+	pthread_mutex_unlock (&mutex);
+
+	//Avisa o jogador que o campeonato começou
+	sprintf(resposta.mensagem, "O campeonato começou! Boa sorte %s!\n", jogador->nome);
+	write(jogador->clientpipe_fd, &resposta, sizeof(resposta));
+
+	//Faz fork para poder executar o jogo
+	jogador->pidJogo = fork();
+
+	//Se fork falhou encerra...
+	//ALTERAR ESTRATÉGIA: Avisar cliente de erro no jogo e encerrar comunicações.
+	if(jogador->pidJogo == -1) myabort("Falha fork() thread_trataCliente!",EXIT_FAILURE);
+	if(jogador->pidJogo ==  0){
+		//Processo filho
+		//Fecha fds que não utiliza
+		if(close(jogoArbitro_fd[0]) 		 == -1) myabort("FILHO: Erro ao fechar extremidade de leitura jA0!",EXIT_FAILURE);
+		if(close(jogador->arbitroJogo_fd[1]) == -1) myabort("FILHO: Erro ao fechar extremidade de escrita aJ1!",EXIT_FAILURE);
+
+		//Redireciona stdin / stdout
+		if(dup2(jogador->arbitroJogo_fd[0],STDIN_FILENO ) == -1) myabort("FILHO: Erro na duplicação do pipe aJ0 (read  end)",EXIT_FAILURE);		
+		if(dup2(jogoArbitro_fd[1]		  ,STDOUT_FILENO) == -1) myabort("FILHO: Erro na duplicação do pipe jA1 (write end)",EXIT_FAILURE);
+
+		//Cria o path do jogo
+		//ALTERAR ESTRATÉGIA: Mudar para variavel na estrutura do jogo
+		strcat(path,server->GAMEDIR);
+		strcat(path,"/"); 
+		strcat(path,jogador->jogoAtribuido->nomeJogo);
+
+		//executa o jogo do jogador
+		execl(path,jogador->jogoAtribuido->nomeJogo,NULL);
+
+		//caso falhou na execução encerra o árbitro
+		//ALTERAR ESTRATÉGIA: Avisar cliente de erro no jogo e encerrar comunicações.
+		myabort("execl correu mal!",EXIT_FAILURE);
+	}
+	else{
+		//Processo pai
+		//Fecha fds que não utiliza
+		if(close(jogador->arbitroJogo_fd[0]) == -1) myabort("Erro ao fechar extremidade de leitura aJ0!",EXIT_FAILURE);
+		if(close(jogoArbitro_fd[1])          == -1) myabort("Erro ao fechar extremidade de escrita jA1!",EXIT_FAILURE);
+
+		//Enquanto o jogador está no campeonato le do pipe de saida do jogo e redireciona para o pipe do cliente.
+		while(jogador->estado != 3)
+		{
+			memset(resposta.mensagem, 0, sizeof(resposta.mensagem));
+			nr = read(jogoArbitro_fd[0], resposta.mensagem, sizeof(resposta.mensagem)-1);
+			if (nr > 0){
+				resposta.mensagem[nr] = '\0';
+				write(jogador->clientpipe_fd, &resposta, sizeof(resposta));
+				//se nr write -1 broken pipe
+			}
+			
+			if(nr == -1)
+				printf("Erro %d!");
+		}
+
+		//Fecha os restantes fds
+		if(close(jogador->arbitroJogo_fd[1]) == -1) myabort("Erro ao fechar extremidade de leitura aJ1!",EXIT_FAILURE);
+		if(close(jogoArbitro_fd[0])          == -1) myabort("Erro ao fechar extremidade de escrita jA0!",EXIT_FAILURE);
+
+		//sai do ciclo quando o campeonato acaba e espera pelo exit do seu jogo
+		if ( waitpid(jogador->pidJogo, &status, 0) == -1 ) myabort("Falha waitpid!",-1);
+		if ( WIFEXITED(status) ) 
+		{
+			jogador->score = WEXITSTATUS(status);
+			memset(resposta.mensagem, 0, sizeof(resposta.mensagem));
+			sprintf(resposta.mensagem, "Sua pontuação: %d!\n", jogador->score);
+			write(jogador->clientpipe_fd, &resposta, sizeof(resposta));
+		}
+	}
+}	*/
+/*void * thread_trataTempoEspera(void * ptr){
+	arbitro * server = (arbitro *) ptr;
+	pJogador jogador = server->listaJogadores;
+	RespostaArbitro resposta;
+	union sigval sig_value;
+	sig_value.sival_int = 94357104;
+
+	sleep(0.1); //implementação a pedreiro, evita atropelamentos de mensagem no segundo cliente
+	sprintf(resposta.mensagem, "O campeonato terá inicio dentro de %d segundos!\n", server->ESPERA);
+	while(jogador != NULL){
+		write(jogador->clientpipe_fd, &resposta, sizeof(resposta));
+		jogador = jogador->prox;
+	}
+	sleep(server->ESPERA);
+	puts("Acabou o tempo de espera, começou o campeonato!");
+
+	jogador = server->listaJogadores;
+	while(jogador != NULL){
+		printf("%s\n",jogador->nome);
+		jogador->estado = 0;
+		//lançamos a thread que trata de dar as boas-vindas e estabelecer a comunicação jogo -> cliente
+		if(pthread_create(&(jogador->threadResponde),NULL,thread_trataCliente, (void *) &server) != 0)
+			myabort("Erro no lançamento da thread trata cliente!",-1);
+		jogador = jogador->prox;
+	}
+
+	pthread_mutex_lock(&mutex);
+	pthread_cond_broadcast(&condicao);
+	pthread_mutex_unlock(&mutex);
+
+	sleep(server->DURACAO);
+	puts("Acabou o campeonato!");
+
+	jogador = server->listaJogadores;
+	while(jogador != NULL){
+		jogador->estado = 3;
+		if(sigqueue(jogador->pidJogo   ,10,sig_value) == -1) myabort("sigqueue() error",EXIT_FAILURE);
+		if(sigqueue(jogador->pidJogador,10,sig_value) == -1) myabort("sigqueue() error",EXIT_FAILURE);
+		jogador = jogador->prox;
+	}
+	
+} */
+/*pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t condicao = PTHREAD_COND_INITIALIZER;*/
+
+
+
+
+/*
+			if (contaJogadores(server->listaJogadores) == 1)
+
+			if (contaJogadores(server->listaJogadores) == 2)
+			{
+				pthread_cancel(server->threadEspera);
+				server->listaJogadores = eliminaJogador(server->listaJogadores,jogador->pidJogador);
+				if(server->flagCampeonato == 3)	
+				{
+					puts("Ficou apenas um jogador, tempo de espera cancelado!");
+					sprintf(resposta->mensagem,"\n[ARBITRO]: O campeonato foi adiado, espere por novas informações!\n");
+					write(server->listaJogadores->clientpipe_fd, resposta, sizeof(*resposta));
+					server->flagCampeonato = 0;
+				}
+				else 
+					if(server->flagCampeonato == 1)
+					{
+						pthread_cancel(server->threadEspera);
+						//pthread_cancel(server->listaJogadores->threadResponde);
+						setEstadoDeTodos(3, server->listaJogadores);
+						server->flagCampeonato = 2;
+						if(sigqueue(server->listaJogadores->pidJogo   ,10,sig_value) == -1) myabort("sigqueue() #quit error",EXIT_FAILURE);
+						if(sigqueue(server->listaJogadores->pidJogador,10,sig_value) == -1) myabort("sigqueue() #quit error",EXIT_FAILURE);
+						puts("Ficou apenas um jogador, campeonato acabou!");
+						sprintf(resposta->mensagem,"\n[ARBITRO]: Os teus concorrentes desistiram, és o vencedor!\n");
+						resposta->erro = -4;
+						write(server->listaJogadores->clientpipe_fd, resposta, sizeof(*resposta));
+						server->listaJogadores = libertaListaJogadores(server->listaJogadores);
+					}
+
+			}
+			else
+			{
+				server->listaJogadores = eliminaJogador(server->listaJogadores,jogador->pidJogador);
+			}
+*/
+
+//Fecha os restantes fds
+		//printf("\nJogador %s %d\n",jogador->nome,jogador->estado);
+		//if(close(jogador->arbitroJogo_fd[1]) == -1) myabort("Erro ao fechar extremidade de escrita aJ1!",EXIT_FAILURE);
+		//if(close(jogoArbitro_fd[0])          == -1) myabort("Erro ao fechar extremidade de leitura jA0!",EXIT_FAILURE);
+
+		//sai do ciclo quando o campeonato acaba e espera pelo exit do seu jogo
+
+
+if (contaJogadores(server->listaJogadores) == 2)
+				{
+					pthread_cancel(server->threadEspera);
+					server->listaJogadores = eliminaJogador(server->listaJogadores,jogador->pidJogador);
+					if(server->flagCampeonato == 0)	
+					{
+						puts("Ficou apenas um jogador, tempo de espera cancelado!");
+						sprintf(resposta.mensagem,"\n[ARBITRO]:O campeonato foi adiado, espere por novas informações!\n");
+						write(server->listaJogadores->clientpipe_fd, &resposta, sizeof(resposta));
+					}
+					else 
+						if(server->flagCampeonato == 1)
+						{
+							pthread_cancel(server->threadEspera);
+							puts("Ficou apenas um jogador, campeonato acabou!");
+							sprintf(resposta.mensagem,"\n[ARBITRO]:Os teus concorrentes desistiram, és o vencedor!\n");
+							write(server->listaJogadores->clientpipe_fd, &resposta, sizeof(resposta));
+							setEstadoDeTodos(3, server->listaJogadores);
+							server->flagCampeonato = 2;
+							if(sigqueue(server->listaJogadores->pidJogo   ,10,sig_value) == -1) myabort("sigqueue() comando kill error",-1);
+							if(sigqueue(server->listaJogadores->pidJogador,10,sig_value) == -1) myabort("sigqueue() comando kill error",-1);
+						}
+				}
+				else
+				{
+					if (jogador->estado == 0 || jogador->estado == 1) pthread_cancel(jogador->threadResponde);
+					server->listaJogadores = eliminaJogador(server->listaJogadores,jogador->pidJogador);
+				}
